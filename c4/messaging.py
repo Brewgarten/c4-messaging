@@ -166,7 +166,7 @@ log = logging.getLogger(__name__)
 __version__ = "1.0.dev"
 
 @ClassLogger
-class MessageHandlerProcess(c4.utils.util.NamedProcess):
+class MessageHandlerProcess(multiprocessing.Process):
     """
     A message server handler process that contains a stop method and message handlers
 
@@ -465,7 +465,7 @@ class Poller(zmq.Poller):
         return sockets
 
 @ClassLogger
-class DealerRouter(c4.utils.util.NamedProcess):
+class DealerRouter(multiprocessing.Process):
     """
     A combination of a ZMQ ``DEALER`` that connects to an `upstream` ``ROUTER``
     and a ``ROUTER`` that provides messaging to `downstream` ``DEALERs``
@@ -478,12 +478,12 @@ class DealerRouter(c4.utils.util.NamedProcess):
     :type downstreamAddress: str
     :raises MessagingException: if either upstream address is not set up or downstream address is already in use
     """
-    def __init__(self, upstreamAddress, address, downstreamAddress, name=None, setParentName=False):
+    def __init__(self, upstreamAddress, address, downstreamAddress, name=None):
         if name:
             processName = name + " " + address
         else:
             processName = address
-        super(DealerRouter, self).__init__(name=processName, setParentName=setParentName)
+        super(DealerRouter, self).__init__(name=processName)
         self.handlers = []
         self.upstreamAddress = upstreamAddress
         self.address = address
@@ -767,10 +767,10 @@ class MessageTracker(object):
 
     This implementation is backed by :class:`~multiprocessing.managers.SyncManager`
     """
-    def __init__(self, multiprocess=False):
+    def __init__(self):
         super(MessageTracker, self).__init__()
 
-        self.manager = c4.utils.util.NamedSyncManager("SM MessageTracker", multiprocess)
+        self.manager = multiprocessing.managers.SyncManager()
         self.manager.start(c4.utils.util.disableInterruptSignal)
 
         self.messages = self.manager.dict()
@@ -1243,7 +1243,7 @@ class Peer(object):
                 pass
 
 @ClassLogger
-class PeerRouter(c4.utils.util.NamedProcess):
+class PeerRouter(multiprocessing.Process):
     """
     A combination of a `peer` that connects to other `peers`
     and a ``ROUTER`` that provides messaging to `downstream` ``DEALERs``
@@ -1256,12 +1256,12 @@ class PeerRouter(c4.utils.util.NamedProcess):
     :type downstreamAddress: str
     :raises MessagingException: if either peer or downstream address is already in use
     """
-    def __init__(self, address, clusterInfoImplementation, downstreamAddress, name=None, setParentName=False):
+    def __init__(self, address, clusterInfoImplementation, downstreamAddress, name=None):
         if name:
             processName = name + " " + address
         else:
             processName = address
-        super(PeerRouter, self).__init__(name=processName, setParentName=setParentName)
+        super(PeerRouter, self).__init__(name=processName)
         self.handlers = []
         self.address = address
         self.clusterInfo = clusterInfoImplementation

@@ -1,5 +1,5 @@
-Messaging Application
-=====================
+Messaging Library
+=================
 
 .. automodule:: c4.messaging
     :members:
