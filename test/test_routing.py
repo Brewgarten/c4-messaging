@@ -27,18 +27,6 @@ class ClusterInfoClient(multiprocessing.Process):
         assert self.clusterInfo.nodes["test"] == r + 1
         self.clusterInfo.nodes.lock.release()
 
-@pytest.fixture
-def clusterInfo(cleandir):
-    """
-    Set up a basic cluster information
-    """
-    clusterInformation = ClusterInfo()
-    clusterInformation.nodes["peer1"] = "ipc://peer1-peerAddress.ipc"
-    clusterInformation.nodes["peer2"] = "ipc://peer2-peerAddress.ipc"
-    clusterInformation.aliases["system-manager"] = "peer1"
-
-    return clusterInformation
-
 def test_sharedclusterInfo(clusterInfo):
 
     ps = []

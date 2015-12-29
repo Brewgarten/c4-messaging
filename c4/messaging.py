@@ -676,7 +676,7 @@ class Envelope(c4.utils.jsonutil.JSONSerializable):
 
         if includeTime:
             utcTime = datetime.datetime.utcnow()
-            self.Message["time"] = "{:%Y-%m-%d %H:%M:%S},{:03d}".format(utcTime, utcTime.microsecond // 1000)
+            self.Message["time"] = "{:%Y-%m-%d %H:%M:%S}.{:06d}".format(utcTime, utcTime.microsecond)
 
     # TODO: implement check function to make sure we have all properties (From, To, Action, MessageID, etc...)
 
@@ -1549,6 +1549,101 @@ class Router(object):
                     os.remove(socketFile)
                 except:
                     pass
+
+@ClassLogger
+class RouterClient(object):
+    """
+    A ZMQ client that connects to a ``ROUTER`` using the
+    specified address
+
+    :param fullRouterName: full address/name of the router, e.g., a/b/c/router
+    :type fullRouterName: str
+    :param routerAddress: optional address of a ``ROUTER``, e.g., ipc://a|b|c|router.ipc
+        (uses ipc://<fullRouterName>.ipc by default with / replaced by |
+    :type routerAddress: str
+    """
+    def __init__(self, fullRouterName, routerAddress=None):
+        self.fullRouterName = fullRouterName
+        self.routerName = fullRouterName.split("/")[-1]
+        if routerAddress:
+            self.routerAddress = routerAddress
+        else:
+            self.routerAddress = "ipc://{address}.ipc".format(
+                address=self.fullRouterName.replace("/", "|")
+            )
+        self.identifier = str(uuid.uuid4())
+        self.address = "{name}/client-{identifier}".format(
+            name=self.fullRouterName,
+            identifier=self.identifier
+        )
+        self.upstreamDealer = Dealer(self.routerAddress, self.address, self.address.split("/")[-1])
+
+    def sendMessage(self, envelope):
+        """
+        Send a message into the system without waiting for the response.
+        This represents a ``fire-and-forget`` message pattern
+
+        :param envelope: envelope
+        :type envelope: :class:`Envelope`
+        :param timeout: timeout
+        :type timeout: int
+        :returns: response
+        """
+        if not isinstance(envelope, Envelope):
+            self.log.error("'%s' needs to be of type '%s'", envelope, Envelope)
+            return
+
+        # adjust from field
+        envelope.From = self.address
+        if hasattr(envelope, "ReplyTo"):
+            self.log.warn("removing 'ReplyTo' field '%s' of '%s' envelope to '%s'", envelope.ReplyTo, envelope.Action, envelope.To)
+            delattr(envelope, "ReplyTo")
+
+        # send off message
+        self.upstreamDealer.routeMessage([bytes(self.routerName), bytes(envelope.toJSON(True))])
+
+    def sendRequest(self, envelope, timeout=60):
+        """
+        Send a message into the system and wait for the response.
+        This represents a ``synchronous request-reply`` message pattern
+
+        :param envelope: envelope
+        :type envelope: :class:`Envelope`
+        :param timeout: timeout
+        :type timeout: int
+        :returns: response
+        """
+        if not isinstance(envelope, Envelope):
+            self.log.error("'%s' needs to be of type '%s'", envelope, Envelope)
+            return
+
+        # adjust from and reply to fields
+        envelope.From = self.address
+        envelope.ReplyTo = self.address
+
+        # send off message
+        self.upstreamDealer.routeMessage([bytes(self.routerName), bytes(envelope.toJSON(True))])
+
+        # wait for response
+        poller = Poller()
+        poller.register(self.upstreamDealer.socket, zmq.POLLIN) # @UndefinedVariable
+        try:
+            sockets = dict(poller.poll(timeout=timeout))
+
+            if self.upstreamDealer.hasNewMessage(sockets):
+                envelope = Envelope.fromJSON(self.upstreamDealer.newMessage[0])
+                return envelope.Message
+            else:
+                log.error("timed out waiting for response for '%s' to '%s', took more than '%s' seconds", envelope.Action, envelope.To, timeout)
+                return None
+
+        except KeyboardInterrupt:
+            self.log.debug("terminating request")
+        except:
+            self.log.debug("stopping request")
+            self.log.error(traceback.format_exc())
+        finally:
+            poller.unregister(self.upstreamDealer.socket)
 
 def callMessageHandler(object, envelope):
     """

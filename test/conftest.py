@@ -1,10 +1,11 @@
-import imp
 import logging
 import os
 import shutil
 import tempfile
 
 import pytest
+
+from c4.messaging import ClusterInfo
 
 
 logging.basicConfig(format='%(asctime)s [%(levelname)s] <%(processName)s> [%(name)s(%(filename)s:%(lineno)d)] - %(message)s', level=logging.INFO)
@@ -25,3 +26,15 @@ def cleandir(request):
         shutil.rmtree(newCurrentWorkingDirectory)
     request.addfinalizer(removeTemporaryDirectory)
     return newCurrentWorkingDirectory
+
+@pytest.fixture
+def clusterInfo(cleandir):
+    """
+    Set up a basic cluster information
+    """
+    clusterInformation = ClusterInfo()
+    clusterInformation.nodes["peer1"] = "ipc://peer1-peerAddress.ipc"
+    clusterInformation.nodes["peer2"] = "ipc://peer2-peerAddress.ipc"
+    clusterInformation.aliases["system-manager"] = "peer1"
+    return clusterInformation
+
