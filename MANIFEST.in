@@ -1,0 +1,2 @@
+include versioneer.py
+include c4/messaging/_version.py
