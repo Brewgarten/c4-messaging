@@ -45,7 +45,7 @@ def test_tracking(tracker):
 def test_sharedTracking(tracker):
 
     numberOfProcesses = 10
-    ids = [str(uuid.uuid4()) for n in range(numberOfProcesses)]
+    ids = [str(uuid.uuid4()) for _ in range(numberOfProcesses)]
     start = datetime.datetime.utcnow()
     a = Envelope("a", "b", "test")
 

@@ -28,7 +28,7 @@ def cleandir(request):
     return newCurrentWorkingDirectory
 
 @pytest.fixture
-def clusterInfo(cleandir):
+def clusterInfo(cleandir, temporaryIPCPath):
     """
     Set up a basic cluster information
     """
@@ -38,3 +38,16 @@ def clusterInfo(cleandir):
     clusterInformation.aliases["system-manager"] = "peer1"
     return clusterInformation
 
+@pytest.fixture
+def temporaryIPCPath(request, monkeypatch):
+    """
+    Create a new temporary directory and set c4.messaging.zeromqMessaging.DEFAULT_IPC_PATH to it
+    """
+    newpath = tempfile.mkdtemp(dir="/dev/shm")
+#     newpath = tempfile.mkdtemp(dir="/tmp")
+    monkeypatch.setattr("c4.messaging.zeromqMessaging.DEFAULT_IPC_PATH", newpath)
+
+    def removeTemporaryDirectory():
+        shutil.rmtree(newpath)
+    request.addfinalizer(removeTemporaryDirectory)
+    return newpath

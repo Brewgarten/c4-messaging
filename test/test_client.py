@@ -17,7 +17,7 @@ class TestRouterClient(object):
 
         counter = multiprocessing.Value("i", 0)
 
-        peer1 = PeerRouter("peer1", clusterInfo, "ipc://peer1.ipc")
+        peer1 = PeerRouter("peer1", clusterInfo)
         def peer1Handler(message, envelope):
             with counter.get_lock():
                 counter.value += 1
@@ -42,7 +42,7 @@ class TestRouterClient(object):
 
         counter = multiprocessing.Value("i", 0)
 
-        peer1 = PeerRouter("peer1", clusterInfo, "ipc://peer1.ipc")
+        peer1 = PeerRouter("peer1", clusterInfo)
         def peer1Handler(message, envelope):
             with counter.get_lock():
                 counter.value += 1
