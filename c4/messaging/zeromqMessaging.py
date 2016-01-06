@@ -843,7 +843,7 @@ class RouterClient(object):
         """
         if not isinstance(envelope, Envelope):
             self.log.error("'%s' needs to be of type '%s'", envelope, Envelope)
-            return
+            return None
 
         # adjust from and reply to fields
         envelope.From = self.address
@@ -855,16 +855,28 @@ class RouterClient(object):
         # wait for response
         poller = Poller()
         poller.register(self.upstreamDealer.socket)
+        response = None
         try:
-            sockets = dict(poller.poll(timeout=DEFAULT_POLL_TIMEOUT))
+            if timeout:
+                end = time.time() + timeout
+                while time.time() < end:
+                    sockets = dict(poller.poll(timeout=DEFAULT_POLL_TIMEOUT))
 
-            if self.upstreamDealer.hasNewMessage(sockets):
-                envelope = Envelope.fromJSON(self.upstreamDealer.newMessage[1])
-                return envelope.Message
+                    if self.upstreamDealer.hasNewMessage(sockets):
+                        envelope = Envelope.fromJSON(self.upstreamDealer.newMessage[1])
+                        response = envelope.Message
+                        break
+                    else:
+                        time.sleep(0.1)
+                else:
+                    self.log.error("timed out waiting for response for '%s' to '%s', took more than '%s' seconds", envelope.Action, envelope.To, timeout)
+
             else:
-                # FIXME: introduce time checker since polling is in milliseconds and not seconds
-                log.error("timed out waiting for response for '%s' to '%s', took more than '%s' seconds", envelope.Action, envelope.To, timeout)
-                return None
+                sockets = dict(poller.poll(timeout=DEFAULT_POLL_TIMEOUT))
+
+                if self.upstreamDealer.hasNewMessage(sockets):
+                    envelope = Envelope.fromJSON(self.upstreamDealer.newMessage[1])
+                    response = envelope.Message
 
         except KeyboardInterrupt:
             self.log.debug("terminating request")
@@ -873,6 +885,8 @@ class RouterClient(object):
             self.log.error(traceback.format_exc())
         finally:
             poller.unregister(self.upstreamDealer.socket)
+
+        return response
 
 @ClassLogger
 class ThinDealer(object):
@@ -985,7 +999,6 @@ def isAddressInUse(fullAddress):
             socket.unbind(fullAddress)
         except zmq.ZMQError:
             log.debug("{0} exists".format(fullAddress))
-            log.debug(traceback.format_exc())
             return True
     else:
         raise NotImplementedError
