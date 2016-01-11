@@ -453,6 +453,36 @@ class TestPeerRouter(object):
         assert sharedDict["peer1/one/one/one"]
         assert sharedDict["peer2Response"]
 
+    def test_routeMessagePeerAlias(self, clusterInfo):
+
+        manager = SyncManager()
+        manager.start()
+        sharedDict = manager.dict()
+        sharedDict["system-manager/one"] = False
+
+        peer1 = PeerRouter("peer1", clusterInfo)
+        peer1.start(timeout=1)
+
+        peer2 = PeerRouter("peer2", clusterInfo)
+        peer2.start(timeout=1)
+
+        one = DealerRouter("peer1", "peer1/one")
+        def oneHandler(message):
+            log.debug("system-manager/one received %s", message)
+            sharedDict["system-manager/one"] = True
+            return message
+        one.addHandler(oneHandler)
+        one.start(timeout=1)
+
+        client = RouterClient("peer2")
+        client.sendRequest(Envelope("client", "system-manager/one", "test"))
+
+        one.stop(timeout=1)
+        peer2.stop(timeout=1)
+        peer1.stop(timeout=1)
+
+        assert sharedDict["system-manager/one"]
+
     def test_routeMessagePeers(self, clusterInfo):
 
         manager = SyncManager()

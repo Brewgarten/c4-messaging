@@ -452,6 +452,20 @@ class Peer(BaseComponent):
                 receiverHierarchy[0] = peer
                 envelope.To = "/".join(receiverHierarchy)
                 self.routeMessage(envelope.To, envelope.toJSON(includeClassInfo=True))
+
+        # resolve aliases
+        elif node in self.clusterInfo.aliases:
+
+            # check for infinite recursion
+            if node == self.clusterInfo.aliases[node]:
+                self.log.error("resolving alias leads to same value '%s', dropping '%s'", node, envelopeString)
+            else:
+                # adjust To field of the envelope
+                envelope = Envelope.fromJSON(envelopeString)
+                receiverHierarchy[0] = self.clusterInfo.aliases[node]
+                envelope.To = "/".join(receiverHierarchy)
+                self.routeMessage(envelope.To, envelope.toJSON(includeClassInfo=True))
+
         else:
             address = self.clusterInfo.getNodeAddress(node)
             if address:
@@ -608,7 +622,7 @@ class PeerRouter(RoutingProcess):
         node = receiverHierarchy[0]
 
         # check if the address matches but ignore general wildcard
-        if node != "*" and addressesMatch(self.address, node, upstreamComponent.clusterInfo.aliases.get(node)):
+        if node != "*" and addressesMatch(self.address, node):
 
             # check if node is directly addressed
             if len(receiverHierarchy) == 1:
