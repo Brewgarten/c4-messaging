@@ -5,7 +5,7 @@ from setuptools import setup, find_packages
 import versioneer
 
 
-needs_pytest = {"pytest", "test", "ptr"}.intersection(sys.argv)
+needs_pytest = {"pytest", "test", "ptr", "coverage"}.intersection(sys.argv)
 pytest_runner = ["pytest-runner"] if needs_pytest else []
 
 setup(
