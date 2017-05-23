@@ -140,6 +140,8 @@ from .base import (Envelope,
                    MessagingException,
                    RoutingProcess)
 
+from c4.system.backend import Backend
+
 
 DEFAULT_IPC_PATH = "/tmp"
 DEFAULT_POLL_TIMEOUT = 100
@@ -647,6 +649,8 @@ class PeerRouter(RoutingProcess):
         """
         The implementation of the `Peer`-`Router` routing process
         """
+        #FIXME: this is a hack to prevent etcd operations from hanging later on in this process.
+        Backend().configuration.getAliases()
         peer = Peer(self.address, self.clusterInfo)
         downstreamRouter = Router(self.address)
 
