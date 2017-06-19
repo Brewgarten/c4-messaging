@@ -10,7 +10,7 @@ from .base import (ClusterInfo,
 from .zeromqMessaging import (Dealer, DealerRouter,
                               Peer, PeerClient, PeerRouter, Poller,
                               Router, RouterClient,
-                              isAddressInUse)
+                              isAddressInUse, DEFAULT_IPC_PATH)
 
 from ._version import get_versions
 __version__ = get_versions()['version']
