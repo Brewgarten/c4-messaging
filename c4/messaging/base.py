@@ -8,6 +8,8 @@ import sqlite3
 import time
 import uuid
 
+from threading import Thread
+
 from c4.utils.jsonutil import JSONSerializable
 from c4.utils.logutil import ClassLogger
 from c4.utils.util import (SharedDictWithLock,
@@ -454,6 +456,33 @@ class MessagingException(Exception):
         return "MessagingException('%s')"%self.message
 
 @ClassLogger
+class HandlerThread(Thread):
+    """
+    Thread to do the work of message handling.
+    :param handlers: handlers to pass the message to
+    :type handlers: list
+    :param envelope: Envelope containing the message
+    :type envelope: Envelope
+    """
+    def __init__(self, name, handlers, envelope):
+        super(HandlerThread, self).__init__(name=name)
+        self.envelope = envelope
+        self.handlers = handlers
+        self.responses = []
+
+    """
+    Do the work on passing the message to handlers and accumulating responses.
+    """
+    def run(self):
+        for handler in self.handlers:
+            try:
+                response = callWithVariableArguments(handler, self.envelope.Message, self.envelope)
+                if response is not None:
+                    self.responses.append(response)
+            except Exception as e:
+                self.log.error("Error handling message: %s", e)
+
+@ClassLogger
 class RoutingProcess(multiprocessing.Process):
     """
     An abstract generic routing process that combines an `upstream` and `downstream`
@@ -463,17 +492,23 @@ class RoutingProcess(multiprocessing.Process):
     :type upstreamAddress: str
     :param downstreamAddress: downstream address, e.g., socket or tcp address
     :type downstreamAddress: str
+    :param maxThreads: maximum number of threads to use for message handling
+    :type maxThreads: int
     :param name: process name
     :type name: str
     """
     __metaclass__ = ABCMeta
 
-    def __init__(self, upstreamAddress, downstreamAddress, name=None):
+    def __init__(self, upstreamAddress, downstreamAddress, name=None, maxThreads=2):
         super(RoutingProcess, self).__init__(name=name)
         self.upstreamAddress = upstreamAddress
         self.downstreamAddress = downstreamAddress
         self.handlers = []
         self.stopFlag = multiprocessing.Event()
+        self.maxThreads = maxThreads
+        if self.maxThreads < 2:
+            raise ValueError("The minimum recommended number of threads is 2. Supplied value is: {}".format(self.maxThreads))
+        self.handlerThreads = []
 
     def addHandler(self, function):
         """
@@ -499,38 +534,32 @@ class RoutingProcess(multiprocessing.Process):
 
     def handleMessage(self, envelope):
         """
-        Pass message to message handlers and return responses accordingly.
+        Pass message to message handlers
 
         :param envelope: envelope
         :type envelope: :class:`Envelope`
-        :returns: response envelopes
-        :rtype: [:class:`Envelope`]
         """
-        responses = []
-        for handler in self.handlers:
-            response = callWithVariableArguments(handler, envelope.Message, envelope)
-            if response is not None:
-                responses.append(response)
+        if len(self.handlerThreads) >= self.maxThreads:
+            self.log.error("Maximum number of message handler threads exceeded.")
 
+        thread = HandlerThread(self.name + " " + envelope.Action, self.handlers, envelope)
+        self.handlerThreads.append(thread)
+        thread.start()
+
+    def handleResponses(self):
         responseEnvelopes = []
-        if responses:
-            if len(responses) == 1:
-                try:
-                    envelope.toResponse(response)
-                    envelope.From = self.address
-                    responseEnvelopes.append(envelope)
-                except Exception as e:
-                    self.log.error(e)
-            else:
-                for response in responses:
+        for thread in self.handlerThreads:
+            if not thread.isAlive():
+                for response in thread.responses:
                     try:
                         # we need to make copies of the envelope such that unique response can be generated
-                        envelopeCopy = copy.deepcopy(envelope)
+                        envelopeCopy = copy.deepcopy(thread.envelope)
                         envelopeCopy.toResponse(response)
                         envelopeCopy.From = self.address
                         responseEnvelopes.append(envelopeCopy)
                     except Exception as e:
                         self.log.error(e)
+                self.handlerThreads.remove(thread)
 
         return responseEnvelopes
 

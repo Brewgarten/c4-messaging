@@ -52,9 +52,69 @@ class TestDealerRouter(object):
         client = RouterClient("router/dealerRouter")
         client.sendMessage(Envelope("client", "router/dealerRouter", "test", isRequest=False))
 
+        # Give worker threads a chance to finish
+        time.sleep(.5)
+
         dealerRouter.stop(timeout=1)
 
         assert sharedDict["router/dealerRouter"]
+
+    def test_handleMessage_withException(self):
+
+        manager = SyncManager()
+        manager.start()
+        sharedDict = manager.dict()
+        sharedDict["router/dealerRouter"] = False
+
+        router = Router("router")  # @UnusedVariable
+
+        dealerRouter = DealerRouter("router", "router/dealerRouter")
+        def testHandler(message):
+            sharedDict["router/dealerRouter"] = True
+            # This exception should be handled in HandlerThread
+            raise ValueError("Error!")
+        dealerRouter.addHandler(testHandler)
+        dealerRouter.start(timeout=1)
+
+        client = RouterClient("router/dealerRouter")
+        client.sendMessage(Envelope("client", "router/dealerRouter", "test", isRequest=False))
+
+        # Give worker threads a chance to finish
+        time.sleep(.5)
+
+        dealerRouter.stop(timeout=1)
+
+        assert sharedDict["router/dealerRouter"]
+
+    def test_handleMessage_exceedMaxThreads(self):
+
+        manager = SyncManager()
+        manager.start()
+        sharedDict = manager.dict()
+        sharedLock = manager.Lock()
+        sharedDict["callCount"] = 0
+
+        router = Router("router")  # @UnusedVariable
+
+        dealerRouter = DealerRouter("router", "router/dealerRouter")
+        def testHandler(message):
+            with sharedLock:
+                sharedDict["callCount"] += 1
+            time.sleep(1)
+        dealerRouter.addHandler(testHandler)
+        dealerRouter.start(timeout=1)
+
+        client = RouterClient("router/dealerRouter")
+
+        for i in range(0, 5): # @UnusedVariable
+            client.sendMessage(Envelope("client", "router/dealerRouter", "test", isRequest=False))
+
+        # Give worker threads a chance to finish
+        time.sleep(5)
+
+        dealerRouter.stop(timeout=1)
+
+        assert sharedDict["callCount"] == 5
 
     def test_routeMessageDownstream(self):
 
@@ -76,6 +136,9 @@ class TestDealerRouter(object):
 
         client = RouterClient("router/one")
         client.sendMessage(Envelope("client", "router/one/one", "test", isRequest=False))
+
+        # Give worker threads a chance to finish
+        time.sleep(.5)
 
         one.stop(timeout=1)
         one_one.stop(timeout=1)
@@ -159,6 +222,9 @@ class TestDealerRouter(object):
 
         client = RouterClient("peer1/one")
         client.forwardMessage(Envelope("peer1/one", "peer1/one/*/one", "test"))
+
+        # Give worker threads a chance to finish
+        time.sleep(.5)
 
         one_one_one.stop(timeout=1)
         one_one.stop(timeout=1)
@@ -512,7 +578,7 @@ class TestPeerRouter(object):
         client = RouterClient("peer1")
         client.forwardMessage(Envelope("system-manager", "peer2", "test"))
 
-        time.sleep(0.1)
+        time.sleep(0.5)
 
         peer1.stop(timeout=1)
         peer2.stop(timeout=1)
@@ -520,6 +586,52 @@ class TestPeerRouter(object):
         assert sharedDict["peer1"]
         assert sharedDict["peer2"]
         assert sharedDict["response"]
+
+    def test_routeMessagePeers_exceedMaxThreads(self, clusterInfo):
+
+        manager = SyncManager()
+        manager.start()
+        sharedDict = manager.dict()
+        sharedLock = manager.Lock()
+        sharedDict["peer1Count"] = 0
+        sharedDict["peer2Count"] = 0
+        sharedDict["responseCount"] = 0
+
+        peer1 = PeerRouter("peer1", clusterInfo)
+        def test1(message):
+            log.debug("peer1 received %s", message)
+            with sharedLock:
+                sharedDict["peer1Count"] += 1
+            if message == "response":
+                with sharedLock:
+                    sharedDict["responseCount"] += 1
+            time.sleep(1)
+        peer1.addHandler(test1)
+        peer1.start(timeout=1)
+
+        peer2 = PeerRouter("peer2", clusterInfo)
+        def test2(message):
+            log.debug("peer2 received %s", message)
+            with sharedLock:
+                sharedDict["peer2Count"] += 1
+            time.sleep(1)
+            return "response"
+        peer2.addHandler(test2)
+        peer2.start(timeout=1)
+
+        client = RouterClient("peer1")
+        for i in range(0, 5): # @UnusedVariable
+            client.forwardMessage(Envelope("system-manager", "peer2", "test"))
+
+        # Give worker threads a chance to finish
+        time.sleep(5)
+
+        peer1.stop(timeout=1)
+        peer2.stop(timeout=1)
+
+        assert sharedDict["peer1Count"] == 5
+        assert sharedDict["peer2Count"] == 5
+        assert sharedDict["responseCount"] == 5
 
     def test_startup(self, clusterInfo):
 

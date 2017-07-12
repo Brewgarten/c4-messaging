@@ -293,10 +293,12 @@ class DealerRouter(RoutingProcess):
     :type register: bool
     :param name: optional process name
     :type name: str
+    :param maxThreads: maximum number of threads to use for message handling
+    :type maxThreads: int
     :raises MessagingException: if router address is not set up or own address is
         unavailable
     """
-    def __init__(self, routerAddress, address, register=True, name=None):
+    def __init__(self, routerAddress, address, register=True, name=None, maxThreads=2):
 
         self.address = address
         self.routerAddress = routerAddress
@@ -316,7 +318,7 @@ class DealerRouter(RoutingProcess):
             processName = name + " " + address
         else:
             processName = address
-        super(DealerRouter, self).__init__(upstreamAddress, downstreamAddress, name=processName)
+        super(DealerRouter, self).__init__(upstreamAddress, downstreamAddress, name=processName, maxThreads=maxThreads)
 
     def areComponentsReady(self):
         """
@@ -341,16 +343,11 @@ class DealerRouter(RoutingProcess):
         receiverHierarchy = To.split("/")
 
         if To == self.address:
-            # pass envelope to message handler and collect responses
-            responseEnvelopes = []
             try:
-                envelope = Envelope.fromJSON(envelopeString)
-                responseEnvelopes = self.handleMessage(envelope)
+                self.handleMessage(Envelope.fromJSON(envelopeString))
             except Exception as e:
                 self.log.error("Invalid message envelope %s", envelopeString)
                 self.log.exception(e)
-            for responseEnvelope in responseEnvelopes:
-                self.routeMessage(responseEnvelope.To, responseEnvelope.toJSON(includeClassInfo=True), upstreamComponent, downstreamComponent)
         else:
             dealerRouterHierarchy = self.address.split("/")
 
@@ -369,7 +366,6 @@ class DealerRouter(RoutingProcess):
                 self.log.debug("'%s' routing '%s' to '%s' downstream", self.address, envelopeString, To)
                 downstreamComponent.routeMessage(To, envelopeString)
 
-
     def run(self):
         """
         The implementation of the `Dealer`-`Router` routing process
@@ -383,11 +379,15 @@ class DealerRouter(RoutingProcess):
             while not self.stopFlag.is_set():
                 sockets = dict(poller.poll(timeout=DEFAULT_POLL_TIMEOUT))
 
-                if downstreamRouter.hasNewMessage(sockets):
+                # Make sure we have a spare thread to handle a new message
+                if len(self.handlerThreads) < self.maxThreads:
+                    if downstreamRouter.hasNewMessage(sockets):
+                        To, envelopeString = downstreamRouter.newMessage
+                        self.log.debug("'%s' received '%s' for '%s'", self.downstreamAddress, envelopeString, To)
+                        self.routeMessage(To, envelopeString, upstreamDealer, downstreamRouter)
 
-                    To, envelopeString = downstreamRouter.newMessage
-                    self.log.debug("'%s' received '%s' for '%s'", self.downstreamAddress, envelopeString, To)
-                    self.routeMessage(To, envelopeString, upstreamDealer, downstreamRouter)
+                for responseEnvelope in self.handleResponses():
+                    self.routeMessage(responseEnvelope.To, responseEnvelope.toJSON(includeClassInfo=True), upstreamDealer, downstreamRouter)
 
         except KeyboardInterrupt:
             self.log.debug("terminating %s", self.name)
@@ -573,10 +573,12 @@ class PeerRouter(RoutingProcess):
     :type clusterInfoImplementation: :class:`ClusterInfo`
     :param name: optional process name
     :type name: str
+    :param maxThreads: maximum number of threads to use for message handling
+    :type maxThreads: int
     :raises MessagingException: if router address is not set up or own address is
         unavailable
     """
-    def __init__(self, address, clusterInfoImplementation, name=None):
+    def __init__(self, address, clusterInfoImplementation, name=None, maxThreads=2):
         self.address = address
         self.clusterInfo = clusterInfoImplementation
 
@@ -596,7 +598,7 @@ class PeerRouter(RoutingProcess):
             processName = name + " " + address
         else:
             processName = address
-        super(PeerRouter, self).__init__(upstreamAddress, downstreamAddress, name=processName)
+        super(PeerRouter, self).__init__(upstreamAddress, downstreamAddress, name=processName, maxThreads=maxThreads)
 
     def areComponentsReady(self):
         """
@@ -623,19 +625,15 @@ class PeerRouter(RoutingProcess):
 
         # check if the address matches but ignore general wildcard
         if node != "*" and addressesMatch(self.address, node):
-
             # check if node is directly addressed
             if len(receiverHierarchy) == 1:
-                # pass envelope to message handler and collect responses
-                responseEnvelopes = []
+                # pass envelope to message handler
                 try:
                     envelope = Envelope.fromJSON(envelopeString)
-                    responseEnvelopes = self.handleMessage(envelope)
+                    self.handleMessage(envelope)
                 except Exception as e:
                     self.log.error("Invalid message envelope %s", envelopeString)
                     self.log.exception(e)
-                for responseEnvelope in responseEnvelopes:
-                    self.routeMessage(responseEnvelope.To, responseEnvelope.toJSON(includeClassInfo=True), upstreamComponent, downstreamComponent)
             else:
                 # send downstream
                 downstreamComponent.routeMessage(To, envelopeString)
@@ -657,17 +655,22 @@ class PeerRouter(RoutingProcess):
             while not self.stopFlag.is_set():
                 sockets = dict(poller.poll(timeout=DEFAULT_POLL_TIMEOUT))
 
-                if peer.hasNewMessage(sockets):
+                # Make sure we have a spare thread to handle a new message
+                if len(self.handlerThreads) < self.maxThreads:
+                    if peer.hasNewMessage(sockets):
+                        To, envelopeString = peer.newMessage
+                        self.log.debug("'%s' received '%s' from peer for '%s'", self.upstreamAddress, envelopeString, To)
+                        self.routeMessage(To, envelopeString, peer, downstreamRouter)
 
-                    To, envelopeString = peer.newMessage
-                    self.log.debug("'%s' received '%s' from peer for '%s'", self.upstreamAddress, envelopeString, To)
-                    self.routeMessage(To, envelopeString, peer, downstreamRouter)
+                # Make sure we have a spare thread to handle a new message
+                if len(self.handlerThreads) < self.maxThreads:
+                    if downstreamRouter.hasNewMessage(sockets):
+                        To, envelopeString = downstreamRouter.newMessage
+                        self.log.debug("'%s' received '%s' from downstream for '%s'", self.downstreamAddress, envelopeString, To)
+                        self.routeMessage(To, envelopeString, peer, downstreamRouter)
 
-                if downstreamRouter.hasNewMessage(sockets):
-
-                    To, envelopeString = downstreamRouter.newMessage
-                    self.log.debug("'%s' received '%s' from downstream for '%s'", self.downstreamAddress, envelopeString, To)
-                    self.routeMessage(To, envelopeString, peer, downstreamRouter)
+                for responseEnvelope in self.handleResponses():
+                    self.routeMessage(responseEnvelope.To, responseEnvelope.toJSON(includeClassInfo=True), peer, downstreamRouter)
 
         except KeyboardInterrupt:
             self.log.debug("terminating %s", self.name)
