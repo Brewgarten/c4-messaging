@@ -480,7 +480,7 @@ class HandlerThread(Thread):
                 if response is not None:
                     self.responses.append(response)
             except Exception as e:
-                self.log.error("Error handling message: %s", e)
+                self.log.exception("Error handling message %s: %s", self.envelope.Message, e)
 
 @ClassLogger
 class RoutingProcess(multiprocessing.Process):
