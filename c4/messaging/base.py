@@ -596,7 +596,7 @@ class RoutingProcess(multiprocessing.Process):
             end = time.time() + timeout
             while time.time() < end:
                 if not self.is_alive() or not self.areComponentsReady():
-                    time.sleep(0.1)
+                    time.sleep(0.5)
                 else:
                     self.log.debug("Started '%s'", self.name)
                     break
