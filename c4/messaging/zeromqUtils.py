@@ -1,4 +1,8 @@
 """
+Copyright (c) IBM 2015-2017. All Rights Reserved.
+Project name: c4-messaging
+This project is licensed under the MIT License, see LICENSE
+
 This library contains process and threading functionality to handle
 ZMQ messages synchronously and asynchronously with both a functional
 as well as object-oriented approach.
